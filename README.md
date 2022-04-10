@@ -67,7 +67,7 @@ The JUnit style XML report for this project looks like this:
 
 ## Options
 
-`JUnitFormatter` accepts 6 options that can be passed in config.exs (or equivalent environment configuration for tests):
+`JUnitFormatter` accepts 9 options that can be passed in config.exs (or equivalent environment configuration for tests):
 
 - `print_report_file` (boolean - default `false`): tells formatter if you want to see the path where the file is being written to in the console. This might help you debug where the file is. By default it writes the report to the `Mix.Project.app_path` folder. This ensures compatibility with umbrella apps.
 - `report_file` (binary - default `"test-junit-report.xml"`): the name of the file to write to. It must contain the extension. 99% of the time you will want the extension to be `.xml`, but if you don't you can pass any extension (though the contents of the file will be an XML document).
@@ -78,6 +78,7 @@ The JUnit style XML report for this project looks like this:
 - `include_file_line?` (boolean - default `false`): only has effect when `include_filename?` is `true`. Dictates whether `file` attribute should include line of the test after a colon (e.g. `test/file_test.exs:123`).
 - `automatic_create_dir?` (boolean - default `false`): create a directory that defined in `report_dir` before writing report files.
 - `project_dir` (string - default `nil`). Specifies which directory the test file paths should be relative to within the XML. If unset or `nil`, the path to the test file is calculated relative to the current working directory.
+- `temp_storage` (`:memory` or `:disk` atom - default `:memory`). Specifies whether the test data should be temporarily stored in memory (the default) or in disk. If `:disk`, it uses an Erlang disk-based term storage.
 
 Example configuration:
 

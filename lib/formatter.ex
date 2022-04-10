@@ -28,6 +28,8 @@ defmodule JUnitFormatter do
 
   use GenServer
 
+  alias JUnitFormatter.Dets
+
   defmodule Stats do
     @moduledoc """
     A struct to keep track of test values and tests themselves.
@@ -51,7 +53,16 @@ defmodule JUnitFormatter do
           }
   end
 
-  defstruct cases: %{}, properties: %{}
+  defstruct cases: %{}, properties: %{}, dets: nil
+
+  @impl true
+  def terminate(_reason, %{dets: dets_name}) when not is_nil(dets_name) do
+    Dets.close_and_delete!(dets_name)
+
+    :ok
+  end
+
+  def terminate(_reason, _state), do: :ok
 
   @impl true
   def init(opts) do
@@ -59,11 +70,18 @@ defmodule JUnitFormatter do
       :ok = File.mkdir_p(report_dir())
     end
 
+    dets = if temp_storage() == :memory do
+      dets_name = :"TestCases#{System.unique_integer([:positive])}"
+
+      Dets.new!(dets_name)
+    end
+
     {:ok,
      %__MODULE__{
+       dets: dets,
        properties: %{
          seed: opts[:seed],
-         date: DateTime.to_iso8601(DateTime.utc_now())
+         date: DateTime.to_iso8601(DateTime.utc_now()),
        }
      }}
   end
@@ -149,11 +167,29 @@ defmodule JUnitFormatter do
     automatic_create_dir? || use_project_subdir?
   end
 
+  defp temp_storage do
+    # true
+    case Application.get_env(:junit_formatter, :temp_storage) do
+      storage when storage in [:memory, :disk] -> storage
+      _ -> :memory
+    end
+  end
+
   # PRIVATE ------------
 
+  defp handle_suite_finished(%{dets: dets_name} = config) when not is_nil(dets_name) do
+    cases = Dets.all(dets_name)
+
+    _handle_suite_finished(cases, config)
+  end
+
   defp handle_suite_finished(config) do
+    _handle_suite_finished(config.cases, config)
+  end
+
+  defp _handle_suite_finished(cases, config) do
     # do the real magic
-    suites = Enum.map(config.cases, &generate_testsuite_xml(&1, config.properties))
+    suites = Enum.map(cases, &generate_testsuite_xml(&1, config.properties))
     # wrap result in a root node (not adding any attribute to root)
     result = :xmerl.export_simple([{:testsuites, [], suites}], :xmerl_xml)
 
@@ -165,6 +201,29 @@ defmodule JUnitFormatter do
     if Application.get_env(:junit_formatter, :print_report_file, false) do
       IO.puts(:stderr, "Wrote JUnit report to: #{file_name}")
     end
+  end
+
+  # if there is a dets file, instead of accumulating
+  # the test cases, we immediately write the test case
+  defp adjust_case_stats(%ExUnit.Test{case: name, time: time} = testcase, type, %{dets: dets_name} = state) when not is_nil(dets_name) do
+    Dets.update(
+      dets_name,
+      name,
+      struct(Stats, [{type, 1}, test_cases: [testcase], time: time, tests: 1]),
+      fn stats ->
+        stats =
+          struct(
+            stats,
+            test_cases: [testcase | stats.test_cases],
+            time: stats.time + time,
+            tests: stats.tests + 1
+          )
+
+        if type, do: Map.update!(stats, type, &(&1 + 1)), else: stats
+      end
+    )
+
+    state
   end
 
   defp adjust_case_stats(%ExUnit.Test{case: name, time: time} = test, type, state) do
