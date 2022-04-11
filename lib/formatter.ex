@@ -70,18 +70,23 @@ defmodule JUnitFormatter do
       :ok = File.mkdir_p(report_dir())
     end
 
-    dets = if temp_storage() == :memory do
-      dets_name = :"TestCases#{System.unique_integer([:positive])}"
+    dets =
+      if temp_storage() == :memory do
+        dets_name = :"TestCases#{System.unique_integer([:positive])}"
 
-      Dets.new!(dets_name)
-    end
+        if Application.get_env(:junit_formatter, :print_report_file, false) do
+          IO.puts(:stderr, "[JUnit Formatter] Using :dets as test case storage: #{dets_name}")
+        end
+
+        Dets.new!(dets_name)
+      end
 
     {:ok,
      %__MODULE__{
        dets: dets,
        properties: %{
          seed: opts[:seed],
-         date: DateTime.to_iso8601(DateTime.utc_now()),
+         date: DateTime.to_iso8601(DateTime.utc_now())
        }
      }}
   end
@@ -203,9 +208,13 @@ defmodule JUnitFormatter do
     end
   end
 
-  # if there is a dets file, instead of accumulating
-  # the test cases, we immediately write the test case
-  defp adjust_case_stats(%ExUnit.Test{case: name, time: time} = testcase, type, %{dets: dets_name} = state) when not is_nil(dets_name) do
+  # if there is a dets, use it for the test cases
+  defp adjust_case_stats(
+         %ExUnit.Test{case: name, time: time} = testcase,
+         type,
+         %{dets: dets_name} = state
+       )
+       when not is_nil(dets_name) do
     Dets.update(
       dets_name,
       name,
