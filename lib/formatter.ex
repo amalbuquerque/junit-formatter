@@ -71,7 +71,7 @@ defmodule JUnitFormatter do
     end
 
     dets =
-      if temp_storage() == :memory do
+      if temp_storage() == :disk do
         dets_name = :"TestCases#{System.unique_integer([:positive])}"
 
         if Application.get_env(:junit_formatter, :print_report_file, false) do
@@ -173,7 +173,6 @@ defmodule JUnitFormatter do
   end
 
   defp temp_storage do
-    # true
     case Application.get_env(:junit_formatter, :temp_storage) do
       storage when storage in [:memory, :disk] -> storage
       _ -> :memory
@@ -182,19 +181,39 @@ defmodule JUnitFormatter do
 
   # PRIVATE ------------
 
-  defp handle_suite_finished(%{dets: dets_name} = config) when not is_nil(dets_name) do
-    cases = Dets.all(dets_name)
+  defp write_testsuite_fn(file, config) do
+    fn test_case ->
+      testsuite = generate_testsuite_xml(test_case, config.properties)
 
-    _handle_suite_finished(cases, config)
+      [_definition, xml_to_write] = :xmerl.export_simple([testsuite], :xmerl_xml)
+
+      IO.write(file, xml_to_write)
+      IO.write(file, '\n')
+    end
+  end
+
+  defp handle_suite_finished(%{dets: dets_name} = config) when not is_nil(dets_name) do
+    file_name = get_report_file_path()
+
+    File.open(file_name, [:write], fn file ->
+      IO.write(file, '<?xml version="1.0" encoding="UTF-8"?>\n')
+      IO.write(file, '<testsuites>\n')
+
+      write_testsuite_fn = write_testsuite_fn(file, config)
+
+      Dets.visit(dets_name, write_testsuite_fn)
+
+      IO.write(file, '</testsuites>\n')
+    end)
+
+    if Application.get_env(:junit_formatter, :print_report_file, false) do
+      IO.puts(:stderr, "Wrote JUnit report to: #{file_name}")
+    end
   end
 
   defp handle_suite_finished(config) do
-    _handle_suite_finished(config.cases, config)
-  end
-
-  defp _handle_suite_finished(cases, config) do
     # do the real magic
-    suites = Enum.map(cases, &generate_testsuite_xml(&1, config.properties))
+    suites = Enum.map(config.cases, &generate_testsuite_xml(&1, config.properties))
     # wrap result in a root node (not adding any attribute to root)
     result = :xmerl.export_simple([{:testsuites, [], suites}], :xmerl_xml)
 

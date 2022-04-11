@@ -7,6 +7,7 @@ defmodule JUnitFormatter.Dets do
   @type key :: atom()
   @type value :: any()
   @type update_function :: (any() -> any())
+  @type visit_function :: (any() -> any())
 
   @spec new!(dets_name, Keyword.t()) :: {:ok, dets_name} | {:error, term()}
   def new!(name, opts \\ []) when is_atom(name) do
@@ -33,13 +34,14 @@ defmodule JUnitFormatter.Dets do
 
   @spec update(dets_name, key, any(), update_function) :: :ok
   def update(dets, key, value, update_function) do
-    new_value = case :dets.lookup(dets, key) do
-      [] ->
-        value
+    new_value =
+      case :dets.lookup(dets, key) do
+        [] ->
+          value
 
-      [{^key, existing_value}] ->
-        update_function.(existing_value)
-    end
+        [{^key, existing_value}] ->
+          update_function.(existing_value)
+      end
 
     :dets.insert(dets, {key, new_value})
   end
@@ -49,10 +51,23 @@ defmodule JUnitFormatter.Dets do
     :dets.foldl(fn element, acc -> [element | acc] end, [], dets)
   end
 
+  @spec visit(dets_name, visit_function) :: any() | {:error, any()}
+  def visit(dets, visit_function) do
+    :dets.foldl(
+      fn element, acc ->
+        visit_function.(element)
+        acc
+      end,
+      [],
+      dets
+    )
+  end
+
   @spec lookup(dets_name, any()) :: nil | any() | [any()]
   def lookup(dets, key) do
     case :dets.lookup(dets, key) do
-      [] -> nil
+      [] ->
+        nil
 
       [{^key, value}] ->
         value
